@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace 'com.tracker.phonetracker'
-    compileSdk 34
+    compileSdk 33
 
     defaultConfig {
         applicationId "com.tracker.phonetracker"
         minSdk 21
-        targetSdk 34
+        targetSdk 33
         versionCode 1
         versionName "1.0"
     }
@@ -23,6 +23,14 @@ android {
         release {
             minifyEnabled false
         }
+    }
+}
+
+configurations.all {
+    resolutionStrategy {
+        force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.10'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.10'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.10'
     }
 }
 
