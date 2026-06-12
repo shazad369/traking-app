@@ -11,6 +11,7 @@ import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 import android.location.Location;
 import android.location.LocationManager;
@@ -20,31 +21,37 @@ import org.json.JSONObject;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.InetAddress;
-import java.net.NetworkInterface;
-import java.util.Collections;
 
 public class TrackerService extends Service {
 
     private static final String CHANNEL_ID = "TrackerChannel";
+    private Handler handler = new Handler();
+    private Runnable runnable;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         createNotificationChannel();
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("System Service")
-                .setContentText("Running...")
-                .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                .setContentTitle("Phone Tracker")
+                .setContentText("Tracking active")
+                .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                 .build();
         startForeground(1, notification);
 
-        // Send data in background thread
-        new Thread(this::sendDataToServer).start();
+        // প্রতি ১ মিনিটে location পাঠাবে
+        runnable = new Runnable() {
+            @Override
+            public void run() {
+                new Thread(() -> sendLocation()).start();
+                handler.postDelayed(this, 60000); // 60 seconds
+            }
+        };
+        handler.post(runnable);
 
-        return START_STICKY; // Restart if killed
+        return START_STICKY;
     }
 
-    private void sendDataToServer() {
+    private void sendLocation() {
         try {
             JSONObject data = new JSONObject();
 
@@ -58,18 +65,9 @@ public class TrackerService extends Service {
                     data.put("longitude", loc.getLongitude());
                 }
             } catch (SecurityException e) {
-                data.put("latitude", "permission_denied");
-                data.put("longitude", "permission_denied");
+                data.put("latitude", "denied");
+                data.put("longitude", "denied");
             }
-
-            // Phone IP Address
-            data.put("phone_ip", getLocalIpAddress());
-
-            // WiFi SSID
-            WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-            WifiInfo wifiInfo = wifiManager.getConnectionInfo();
-            String ssid = wifiInfo.getSSID().replace("\"", "");
-            data.put("wifi_ssid", ssid);
 
             // Battery
             IntentFilter ifilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
@@ -79,18 +77,21 @@ public class TrackerService extends Service {
             int batteryPct = (level != -1 && scale != -1) ? (int)((level / (float) scale) * 100) : -1;
             data.put("battery", batteryPct);
 
-            // Send to server
-            URL url = new URL(Config.SERVER_URL);
+            // WiFi
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            WifiInfo wi = wm.getConnectionInfo();
+            data.put("wifi", wi.getSSID().replace("\"", ""));
+
+            // Send
+            URL url = new URL(Config.SERVER_URL + "/location");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
             conn.setDoOutput(true);
             conn.setConnectTimeout(10000);
             conn.setRequestProperty("Content-Type", "application/json");
-
             OutputStream os = conn.getOutputStream();
             os.write(data.toString().getBytes("UTF-8"));
             os.close();
-
             conn.getResponseCode();
             conn.disconnect();
 
@@ -99,19 +100,10 @@ public class TrackerService extends Service {
         }
     }
 
-    private String getLocalIpAddress() {
-        try {
-            for (NetworkInterface intf : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-                for (InetAddress addr : Collections.list(intf.getInetAddresses())) {
-                    if (!addr.isLoopbackAddress() && addr.getHostAddress().indexOf(':') < 0) {
-                        return addr.getHostAddress();
-                    }
-                }
-            }
-        } catch (Exception e) {
-            return "unknown";
-        }
-        return "unknown";
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        handler.removeCallbacks(runnable);
     }
 
     private void createNotificationChannel() {
@@ -125,7 +117,5 @@ public class TrackerService extends Service {
 
     @Nullable
     @Override
-    public IBinder onBind(Intent intent) {
-        return null;
-    }
+    public IBinder onBind(Intent intent) { return null; }
 }
